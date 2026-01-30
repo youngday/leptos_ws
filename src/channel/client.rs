@@ -23,32 +23,6 @@ where
 impl<T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static> ChannelSignalTrait
     for ClientChannelSignal<T>
 {
-    // fn send_to_server(&self, data: T) -> Result<(), Error> {
-    //     use crate::ServerSignalWebSocket;
-
-    //     let ws = use_context::<ServerSignalWebSocket>().ok_or(Error::MissingServerSignals)?;
-    //     let json_data =
-    //         serde_json::to_value(&data).map_err(|err| Error::SerializationFailed(err))?;
-
-    //     // Create a patch update message to send to server
-    //     let current_json = self.json()?;
-    //     let patch = json_patch::diff(&current_json, &json_data);
-    //     let update = crate::messages::SignalUpdate::new_from_patch(self.name.clone(), &patch);
-
-    //     ws.send(&Messages::ServerSignal(ServerSignalMessage::Update(update)))?;
-
-    //     // Trigger server callbacks (simulate server-side processing)
-    //     if let Ok(callbacks) = self.server_callbacks.read() {
-    //         for callback in callbacks.iter() {
-    //             callback(&data);
-    //         }
-    //     }
-
-    //     Ok(())
-    // }
-    //
-    //
-
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -69,6 +43,12 @@ impl<T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static> ChannelSignal
         }
 
         Ok(())
+    }
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error> {
+        Ok(Messages::Channel(ChannelMessage::Establish(
+            self.name.clone(),
+        )))
     }
 }
 

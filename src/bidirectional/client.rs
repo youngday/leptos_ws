@@ -82,6 +82,12 @@ impl<T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static> WsSignalCore
     ) -> Result<tokio::sync::broadcast::Receiver<(Option<String>, Messages)>, Error> {
         Ok(self.observers.subscribe())
     }
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error> {
+        Ok(Messages::BiDirectional(BiDirectionalMessage::Establish(
+            self.name.clone(),
+        )))
+    }
 }
 impl<T> ClientBidirectionalSignal<T>
 where

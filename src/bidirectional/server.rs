@@ -88,6 +88,12 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> W
     ) -> Result<tokio::sync::broadcast::Receiver<(Option<String>, Messages)>, Error> {
         Ok(self.observers.subscribe())
     }
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error> {
+        Ok(Messages::BiDirectional(BiDirectionalMessage::Establish(
+            self.name.clone(),
+        )))
+    }
 }
 
 impl<T> ServerBidirectionalSignal<T>

@@ -15,6 +15,7 @@ pub trait WsSignalCore: private::DeleteTrait {
     fn subscribe(
         &self,
     ) -> Result<tokio::sync::broadcast::Receiver<(Option<String>, Messages)>, Error>;
+    fn on_reconnect_message(&self) -> Result<Messages, Error>;
 }
 
 /// Trait for channel signals that can handle server and client-side message callbacks
@@ -28,6 +29,8 @@ pub trait ChannelSignalTrait: private::DeleteTrait + Send + Sync + 'static {
     ) -> Result<tokio::sync::broadcast::Receiver<(Option<String>, Messages)>, Error>;
     /// Call callback function with message
     fn handle_message(&self, message: Value) -> Result<(), Error>;
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error>;
 }
 
 pub(crate) mod private {

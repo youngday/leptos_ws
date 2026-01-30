@@ -71,6 +71,12 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> W
     ) -> Result<tokio::sync::broadcast::Receiver<(Option<String>, Messages)>, Error> {
         Err(Error::NotAvailableOnSignal)
     }
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error> {
+        Ok(Messages::ServerSignal(ServerSignalMessage::Establish(
+            self.name.clone(),
+        )))
+    }
 }
 impl<T> ClientReadOnlySignal<T>
 where

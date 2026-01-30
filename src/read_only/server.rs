@@ -82,6 +82,12 @@ impl<T: Clone + Send + Serialize + Sync + for<'de> Deserialize<'de> + 'static> W
     ) -> Result<tokio::sync::broadcast::Receiver<(Option<String>, Messages)>, Error> {
         Ok(self.observers.subscribe())
     }
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error> {
+        Ok(Messages::ServerSignal(ServerSignalMessage::Establish(
+            self.name.clone(),
+        )))
+    }
 }
 
 impl<T> ServerReadOnlySignal<T>

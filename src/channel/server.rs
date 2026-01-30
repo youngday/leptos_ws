@@ -47,6 +47,12 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> C
 
         Ok(())
     }
+
+    fn on_reconnect_message(&self) -> Result<Messages, Error> {
+        Ok(Messages::Channel(ChannelMessage::Establish(
+            self.name.clone(),
+        )))
+    }
 }
 
 impl<T> ServerChannelSignal<T>

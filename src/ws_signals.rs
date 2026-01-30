@@ -169,4 +169,20 @@ impl WsSignals {
         }
         Err(Error::DeletingChannelHandlerFailed)
     }
+
+    pub fn get_reconnect_messages(&self) -> Vec<Messages> {
+        let mut messages = Vec::new();
+        for data in self.signals.iter() {
+            if let Some(message) = data.on_reconnect_message().ok() {
+                messages.push(message);
+            }
+        }
+
+        for data in self.channels.iter() {
+            if let Some(message) = data.on_reconnect_message().ok() {
+                messages.push(message);
+            }
+        }
+        messages
+    }
 }

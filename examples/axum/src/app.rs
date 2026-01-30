@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos::server_fn::{codec::JsonEncoding, BoxedStream, Websocket};
+use leptos::server_fn::{BoxedStream, Websocket, codec::JsonEncoding};
 use leptos::task::spawn_local;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -24,6 +24,15 @@ pub struct ChatMessage {
 pub fn App() -> impl IntoView {
     // Provide websocket connection
     leptos_ws::provide_websocket();
+    #[cfg(feature = "hydrate")]
+    {
+        use leptos_ws::ServerSignalWebSocket;
+        let context = expect_context::<ServerSignalWebSocket>();
+        context.set_on_disconnect(move || {
+            leptos::logging::error!("WebSocket disconnected");
+            // Handle disconnect event
+        });
+    }
     let count = leptos_ws::ReadOnlySignal::new("count", 0 as i32).unwrap();
 
     let history = leptos_ws::ReadOnlySignal::new("history", History { entries: vec![] }).unwrap();

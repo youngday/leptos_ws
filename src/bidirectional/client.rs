@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     any::Any,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     sync::{Arc, RwLock},
 };
 use tokio::sync::broadcast::{Sender, channel};
@@ -47,11 +47,11 @@ impl<T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static> WsSignalCore
             .json_value
             .write()
             .map_err(|_| Error::UpdateSignalFailed)?;
-        if json_patch::patch(writer.deref_mut(), patch).is_ok() {
-            self.value.set(
-                serde_json::from_value(writer.clone())
-                    .map_err(|err| Error::SerializationFailed(err))?,
-            );
+        if json_patch::patch(&mut writer, patch).is_ok() {
+            let writer_clone = writer.clone();
+            drop(writer);
+            self.value
+                .set(serde_json::from_value(writer_clone).map_err(Error::SerializationFailed)?);
             if id.is_none() {
                 let _ = self.observers.send((
                     None,
@@ -71,10 +71,10 @@ impl<T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static> WsSignalCore
             .write()
             .map_err(|_| Error::UpdateSignalFailed)?;
         *writer = new_value;
-        self.value.set(
-            serde_json::from_value(writer.clone())
-                .map_err(|err| Error::SerializationFailed(err))?,
-        );
+        let writer_clone = writer.clone();
+        drop(writer);
+        self.value
+            .set(serde_json::from_value(writer_clone).map_err(Error::SerializationFailed)?);
         Ok(())
     }
     fn subscribe(
@@ -96,16 +96,14 @@ where
     pub fn new(name: &str, value: T) -> Result<Self, Error> {
         let mut signals: WsSignals =
             use_context::<WsSignals>().ok_or(Error::MissingServerSignals)?;
-        if signals.contains(&name) {
-            return Ok(signals
-                .get_signal::<ClientBidirectionalSignal<T>>(&name)
-                .unwrap());
+        if signals.contains(name) {
+            return Ok(signals.get_signal(name).unwrap());
         }
         let (send, _) = channel(32);
         let new_signal = Self {
             value: ArcRwSignal::new(value.clone()),
             json_value: Arc::new(RwLock::new(
-                serde_json::to_value(value).map_err(|err| Error::SerializationFailed(err))?,
+                serde_json::to_value(value).map_err(Error::SerializationFailed)?,
             )),
             name: name.to_owned(),
             observers: Arc::new(send),
@@ -128,13 +126,13 @@ where
         };
 
         let new_json = serde_json::to_value(self.value.get())?;
-        let mut res = Err(Error::UpdateSignalFailed);
-        if *json != new_json {
+        if *json == new_json {
+            Err(Error::UpdateSignalFailed)
+        } else {
             let patch = json_patch::diff(&json, &new_json);
             drop(json);
-            res = self.update_json(&patch, None).await;
+            self.update_json(&patch, None).await
         }
-        res
     }
 }
 

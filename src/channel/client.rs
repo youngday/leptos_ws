@@ -34,12 +34,11 @@ impl<T: Clone + Send + Sync + for<'de> Deserialize<'de> + 'static> ChannelSignal
     }
 
     fn handle_message(&self, message: Value) -> Result<(), Error> {
-        if let Ok(lock) = self.client_callback.read() {
-            if let Some(callback) = lock.as_ref() {
-                if let Ok(message) = serde_json::from_value(message) {
-                    callback(&message);
-                }
-            }
+        if let Ok(lock) = self.client_callback.read()
+            && let Some(callback) = lock.as_ref()
+            && let Ok(message) = serde_json::from_value(message)
+        {
+            callback(&message);
         }
 
         Ok(())
@@ -59,7 +58,7 @@ where
     pub fn new(name: &str) -> Result<Self, Error> {
         let mut signals: WsSignals =
             use_context::<WsSignals>().ok_or(Error::MissingServerSignals)?;
-        if let Some(signal) = signals.get_channel::<ClientChannelSignal<T>>(name) {
+        if let Some(signal) = signals.get_channel(name) {
             return Ok(signal);
         }
         let (send, _) = channel(32);
@@ -101,10 +100,12 @@ where
     /// Send a message to the server
     pub fn send_message(&self, message: T) -> Result<(), Error> {
         let message = serde_json::to_value(&message)?;
-        self.observers.send((
-            None,
-            Messages::Channel(ChannelMessage::Message(self.name.clone(), message)),
-        ));
+        self.observers
+            .send((
+                None,
+                Messages::Channel(ChannelMessage::Message(self.name.clone(), message)),
+            ))
+            .map_err(|_| Error::SendMessageFailed)?;
 
         Ok(())
     }

@@ -1,8 +1,3 @@
-use std::any::Any;
-use std::ops::Deref;
-use std::panic::Location;
-use std::sync::{Arc, RwLock};
-
 use crate::error::Error;
 use crate::messages::{Messages, ServerSignalMessage, SignalUpdate};
 use crate::traits::{WsSignalCore, private};
@@ -14,6 +9,11 @@ use json_patch::Patch;
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::any::Any;
+use std::ops::Deref;
+use std::panic::Location;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::sync::broadcast::{Sender, channel};
 
 /// A signal owned by the server which writes to the websocket when mutated.
@@ -40,16 +40,13 @@ impl<T: Clone + Send + Serialize + Sync + for<'de> Deserialize<'de> + 'static> W
     }
     fn json(&self) -> Result<Value, Error> {
         self.json_value
-            .read()
+            .try_read()
             .map(|value| value.clone())
             .map_err(|_| Error::AddingSignalFailed)
     }
 
     async fn update_json(&self, patch: &Patch, id: Option<String>) -> Result<(), Error> {
-        let mut writer = self.json_value.write();
-        let Ok(mut writer) = writer.as_deref_mut() else {
-            return Err(Error::UpdateSignalFailed);
-        };
+        let mut writer = self.json_value.write().await;
 
         if json_patch::patch(&mut writer, patch).is_ok() {
             let _ = self.observers.send((
@@ -67,13 +64,12 @@ impl<T: Clone + Send + Serialize + Sync + for<'de> Deserialize<'de> + 'static> W
     fn set_json(&self, new_value: Value) -> Result<(), Error> {
         let mut writer = self
             .json_value
-            .write()
+            .try_write()
             .map_err(|_| Error::UpdateSignalFailed)?;
         *writer = new_value;
-        self.value.set(
-            serde_json::from_value(writer.clone())
-                .map_err(|err| Error::SerializationFailed(err))?,
-        );
+        self.value
+            .set(serde_json::from_value(writer.clone()).map_err(Error::SerializationFailed)?);
+        drop(writer);
         Ok(())
     }
 
@@ -100,11 +96,11 @@ where
     }
 
     pub fn new_with_context(signals: &mut WsSignals, name: &str, value: T) -> Result<Self, Error> {
-        if signals.contains(&name) {
-            return Ok(signals.get_signal::<ServerReadOnlySignal<T>>(name).unwrap());
+        if signals.contains(name) {
+            return Ok(signals.get_signal(name).unwrap());
         }
         let (send, _) = channel(32);
-        let new_signal = ServerReadOnlySignal {
+        let new_signal = Self {
             initial: value.clone(),
             name: name.to_owned(),
             value: ArcRwSignal::new(value.clone()),
@@ -123,30 +119,26 @@ where
     }
 
     async fn update_if_changed(&self) -> Result<(), Error> {
-        let Ok(json) = self.json_value.read() else {
-            return Err(Error::UpdateSignalFailed);
-        };
+        let json = self.json_value.read().await;
 
         let new_json = serde_json::to_value(self.value.get())?;
-        let mut res = Err(Error::UpdateSignalFailed);
-        if *json != new_json {
+        if *json == new_json {
+            Err(Error::UpdateSignalFailed)
+        } else {
             let patch = json_patch::diff(&json, &new_json);
             drop(json);
-            res = self.update_json(&patch, None).await;
+            return self.update_json(&patch, None).await;
         }
-        res
     }
 
-    fn check_is_hydrating(&self) -> bool {
+    fn check_is_hydrating() -> bool {
         #[cfg(feature = "ssr")]
         {
-            let owner = match Owner::current() {
-                Some(owner) => owner,
-                None => return false,
+            let Some(owner) = Owner::current() else {
+                return false;
             };
-            let shared_context = match owner.shared_context() {
-                Some(shared_context) => shared_context,
-                None => return false,
+            let Some(shared_context) = owner.shared_context() else {
+                return false;
             };
             return shared_context.get_is_hydrating() || !shared_context.during_hydration();
         }
@@ -196,7 +188,7 @@ where
     type Value = ReadGuard<T, Plain<T>>;
 
     fn try_read_untracked(&self) -> Option<Self::Value> {
-        if self.check_is_hydrating() {
+        if Self::check_is_hydrating() {
             let guard: ReadGuard<T, Plain<T>> = ReadGuard::new(
                 Plain::try_new(Arc::new(std::sync::RwLock::new(self.initial.clone()))).unwrap(),
             );
@@ -215,7 +207,7 @@ where
 
     fn try_get(&self) -> Option<Self::Value> {
         #[cfg(feature = "ssr")]
-        if self.check_is_hydrating() {
+        if Self::check_is_hydrating() {
             return Some(self.initial.clone());
         }
         self.value.try_get()
@@ -238,10 +230,12 @@ where
     T: Clone + Serialize + Send + Sync + for<'de> Deserialize<'de> + 'static,
 {
     fn delete(&self) -> Result<(), Error> {
-        self.observers.send((
-            None,
-            Messages::ServerSignal(ServerSignalMessage::Delete(self.name.clone())),
-        ));
+        self.observers
+            .send((
+                None,
+                Messages::ServerSignal(ServerSignalMessage::Delete(self.name.clone())),
+            ))
+            .map_err(|_| Error::DeletingSignalFailed)?;
         Ok(())
     }
 }

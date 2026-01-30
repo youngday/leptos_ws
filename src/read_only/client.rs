@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     any::Any,
-    ops::{Deref, DerefMut},
+    ops::Deref,
     sync::{Arc, RwLock},
 };
 
@@ -44,11 +44,11 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> W
             .json_value
             .write()
             .map_err(|_| Error::UpdateSignalFailed)?;
-        if json_patch::patch(writer.deref_mut(), patch).is_ok() {
-            self.value.set(
-                serde_json::from_value(writer.clone())
-                    .map_err(|err| Error::SerializationFailed(err))?,
-            );
+        if json_patch::patch(&mut writer, patch).is_ok() {
+            let writer_clone = writer.clone();
+            drop(writer);
+            self.value
+                .set(serde_json::from_value(writer_clone).map_err(Error::SerializationFailed)?);
             Ok(())
         } else {
             Err(Error::UpdateSignalFailed)
@@ -60,10 +60,10 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> W
             .write()
             .map_err(|_| Error::UpdateSignalFailed)?;
         *writer = new_value;
-        self.value.set(
-            serde_json::from_value(writer.clone())
-                .map_err(|err| Error::SerializationFailed(err))?,
-        );
+        let writer_clone = writer.clone();
+        drop(writer);
+        self.value
+            .set(serde_json::from_value(writer_clone).map_err(Error::SerializationFailed)?);
         Ok(())
     }
     fn subscribe(
@@ -85,15 +85,14 @@ where
     pub fn new(name: &str, value: T) -> Result<Self, Error> {
         let mut signals: WsSignals =
             use_context::<WsSignals>().ok_or(Error::MissingServerSignals)?;
-        if signals.contains(&name) {
-            return Ok(signals
-                .get_signal::<ClientReadOnlySignal<T>>(&name)
-                .unwrap());
+        if let Some(signal) = signals.get_signal(name) {
+            return Ok(signal);
         }
+
         let new_signal = Self {
             value: ArcRwSignal::new(value.clone()),
             json_value: Arc::new(RwLock::new(
-                serde_json::to_value(value).map_err(|err| Error::SerializationFailed(err))?,
+                serde_json::to_value(value).map_err(Error::SerializationFailed)?,
             )),
             name: name.to_owned(),
         };

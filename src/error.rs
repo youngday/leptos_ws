@@ -18,6 +18,9 @@ pub enum Error {
     #[error("Could not update Signal")]
     UpdateSignalFailed,
 
+    #[error("Could not send message")]
+    SendMessageFailed,
+
     #[error("Method not available on Signal")]
     NotAvailableOnSignal,
 

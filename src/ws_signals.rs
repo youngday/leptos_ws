@@ -20,8 +20,7 @@ impl WsSignals {
     pub fn new() -> Self {
         let signals = Arc::new(DashMap::new());
         let channels = Arc::new(DashMap::new());
-        let me = Self { signals, channels };
-        me
+        Self { signals, channels }
     }
     pub fn create_signal<T>(&mut self, name: &str, value: T, msg: &Messages) -> Result<(), Error>
     where
@@ -110,31 +109,23 @@ impl WsSignals {
     }
 
     pub fn add_observer(&self, name: &str) -> Option<Receiver<(Option<String>, Messages)>> {
-        match self.signals.get(name) {
-            Some(value) => value.value().subscribe().ok(),
-            None => None,
-        }
+        self.signals
+            .get(name)
+            .and_then(|v| v.value().subscribe().ok())
     }
 
     pub fn add_observer_channel(&self, name: &str) -> Option<Receiver<(Option<String>, Messages)>> {
-        match self.channels.get(name) {
-            Some(value) => value.value().subscribe().ok(),
-            None => None,
-        }
+        self.channels
+            .get(name)
+            .and_then(|v| v.value().subscribe().ok())
     }
 
     pub fn handle_message(&self, name: &str, message: Value) -> Option<Result<(), Error>> {
-        match self.channels.get(name) {
-            Some(value) => Some(value.handle_message(message)),
-            None => None,
-        }
+        self.channels.get(name).map(|v| v.handle_message(message))
     }
 
     pub fn json(&self, name: &str) -> Option<Result<Value, Error>> {
-        match self.signals.get(name) {
-            Some(value) => Some(value.json()),
-            None => None,
-        }
+        self.signals.get(name).map(|v| v.json())
     }
     pub async fn update(
         &self,
@@ -156,7 +147,7 @@ impl WsSignals {
 
     pub fn delete_signal(&mut self, name: &str) -> Result<(), Error> {
         if let Some(signal) = self.signals.remove(name) {
-            signal.1.delete();
+            signal.1.delete()?;
             return Ok(());
         }
         Err(Error::DeletingSignalFailed)
@@ -173,13 +164,13 @@ impl WsSignals {
     pub fn get_reconnect_messages(&self) -> Vec<Messages> {
         let mut messages = Vec::new();
         for data in self.signals.iter() {
-            if let Some(message) = data.on_reconnect_message().ok() {
+            if let Ok(message) = data.on_reconnect_message() {
                 messages.push(message);
             }
         }
 
         for data in self.channels.iter() {
-            if let Some(message) = data.on_reconnect_message().ok() {
+            if let Ok(message) = data.on_reconnect_message() {
                 messages.push(message);
             }
         }

@@ -32,6 +32,12 @@ pub fn App() -> impl IntoView {
             leptos::logging::error!("WebSocket disconnected");
             // Handle disconnect event
         });
+        context.set_on_reconnect(move || {
+            leptos::logging::warn!("WebSocket reconnected");
+        });
+        context.set_on_connect(move || {
+            leptos::logging::warn!("WebSocket connected");
+        });
     }
     let count = leptos_ws::ReadOnlySignal::new("count", 0 as i32).unwrap();
 

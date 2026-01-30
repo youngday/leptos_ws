@@ -43,6 +43,8 @@ pub struct SignalUpdate {
 
 impl SignalUpdate {
     /// Creates a new [`SignalUpdate`] from an old and new instance of `T`.
+    /// # Errors
+    /// Returns an error if the serialization of the old or new value fails.
     pub fn new<T>(
         name: impl Into<Cow<'static, str>>,
         old: &T,
@@ -54,7 +56,7 @@ impl SignalUpdate {
         let left = serde_json::to_value(old)?;
         let right = serde_json::to_value(new)?;
         let patch = json_patch::diff(&left, &right);
-        Ok(SignalUpdate {
+        Ok(Self {
             name: name.into(),
             patch,
         })
@@ -63,24 +65,24 @@ impl SignalUpdate {
     /// Creates a new [`SignalUpdate`] from two json values.
     pub fn new_from_json(name: impl Into<Cow<'static, str>>, old: &Value, new: &Value) -> Self {
         let patch = json_patch::diff(old, new);
-        SignalUpdate {
+        Self {
             name: name.into(),
             patch,
         }
     }
 
     pub fn new_from_patch(name: impl Into<Cow<'static, str>>, patch: &Patch) -> Self {
-        SignalUpdate {
+        Self {
             name: name.into(),
             patch: patch.clone(),
         }
     }
 
-    pub(crate) fn get_patch(&self) -> &Patch {
+    pub(crate) const fn get_patch(&self) -> &Patch {
         &self.patch
     }
 
-    pub(crate) fn get_name(&self) -> &Cow<'static, str> {
+    pub(crate) const fn get_name(&self) -> &Cow<'static, str> {
         &self.name
     }
 }

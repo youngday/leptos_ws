@@ -37,12 +37,11 @@ impl<T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static> C
     }
 
     fn handle_message(&self, message: Value) -> Result<(), Error> {
-        if let Ok(lock) = self.server_callback.read() {
-            if let Some(callback) = lock.as_ref() {
-                if let Ok(message) = serde_json::from_value(message) {
-                    callback(&message);
-                }
-            }
+        if let Ok(lock) = self.server_callback.read()
+            && let Some(callback) = lock.as_ref()
+            && let Ok(message) = serde_json::from_value(message)
+        {
+            callback(&message);
         }
 
         Ok(())
@@ -65,11 +64,11 @@ where
     }
 
     pub fn new_with_context(signals: &mut WsSignals, name: &str) -> Result<Self, Error> {
-        if let Some(signal) = signals.get_channel::<ServerChannelSignal<T>>(name) {
+        if let Some(signal) = signals.get_channel(name) {
             return Ok(signal);
         }
         let (send, _) = channel(32);
-        let new_signal = ServerChannelSignal {
+        let new_signal = Self {
             name: name.to_owned(),
             observers: Arc::new(send),
             server_callback: Arc::new(RwLock::new(None)),
@@ -106,10 +105,12 @@ where
     /// Send a message to the client
     pub fn send_message(&self, message: T) -> Result<(), Error> {
         let message = serde_json::to_value(&message)?;
-        self.observers.send((
-            None,
-            Messages::Channel(ChannelMessage::Message(self.name.clone(), message)),
-        ));
+        self.observers
+            .send((
+                None,
+                Messages::Channel(ChannelMessage::Message(self.name.clone(), message)),
+            ))
+            .map_err(|_| Error::SendMessageFailed)?;
 
         Ok(())
     }
@@ -125,10 +126,12 @@ where
     T: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
 {
     fn delete(&self) -> Result<(), Error> {
-        self.observers.send((
-            None,
-            Messages::Channel(ChannelMessage::Delete(self.name.clone())),
-        ));
+        self.observers
+            .send((
+                None,
+                Messages::Channel(ChannelMessage::Delete(self.name.clone())),
+            ))
+            .map_err(|_| Error::SendMessageFailed)?;
         Ok(())
     }
 }

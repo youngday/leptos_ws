@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.9.6] - 2026-01-30
+### Added
+- **set_on_reconnect**: Allows you to specify a callback to be executed when the connection is reestablished.
+- **set_on_connect**: Allows you to specify a callback to be executed when the connection is first established.
+Example:
+```rust
+#[cfg(feature = "hydrate")]
+{
+    use leptos_ws::ServerSignalWebSocket;
+    let context = expect_context::<ServerSignalWebSocket>();
+    context.set_on_reconnect(move || {
+        leptos::logging::error!("WebSocket disconnected");
+        // Handle reconnect event
+    });
+}
+```
+
 ## [0.9.5] - 2026-01-30
 ### Added
 #### Reconnection Handling

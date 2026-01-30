@@ -34,6 +34,8 @@ pub struct ServerSignalWebSocket {
     send: Arc<Mutex<Sender<Result<Messages, ServerFnError>>>>,
     delayed_msgs: Arc<Mutex<Vec<Messages>>>,
     on_disconnect: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
+    on_reconnect: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
+    on_connect: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
 }
 #[cfg(any(feature = "csr", feature = "hydrate"))]
 impl ServerSignalWebSocket {
@@ -56,7 +58,36 @@ impl ServerSignalWebSocket {
         }
         Ok(())
     }
+
+    #[must_use]
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set a callback to be called when the websocket connection is lost.
+    /// # Panics
+    /// Panics if the lock is poisoned.
+    pub fn set_on_disconnect(&self, on_disconnect: impl Fn() + Send + Sync + 'static) {
+        *self.on_disconnect.lock().unwrap() = Some(Box::new(on_disconnect));
+    }
+
+    /// Set a callback to be called when the websocket connection is reestablished.
+    /// # Panics
+    /// Panics if the lock is poisoned.
+    pub fn set_on_reconnect(&self, on_reconnect: impl Fn() + Send + Sync + 'static) {
+        *self.on_reconnect.lock().unwrap() = Some(Box::new(on_reconnect));
+    }
+
+    /// Set a callback to be called when the websocket connection is first established.
+    /// # Panics
+    /// Panics if the lock is poisoned.
+    pub fn set_on_connect(&self, on_connect: impl Fn() + Send + Sync + 'static) {
+        *self.on_connect.lock().unwrap() = Some(Box::new(on_connect));
+    }
+}
+#[cfg(any(feature = "csr", feature = "hydrate"))]
+impl Default for ServerSignalWebSocket {
+    fn default() -> Self {
         let (initial_tx, _initial_rx) = mpsc::channel(0);
 
         let delayed_msgs: Arc<Mutex<Vec<Messages>>> = Arc::new(Mutex::new(Vec::new()));
@@ -64,12 +95,17 @@ impl ServerSignalWebSocket {
         let state_signals = WsSignals::new();
         let id = Arc::new(String::new());
         let on_disconnect = Arc::new(Mutex::new(None::<Box<dyn Fn() + Send + Sync + 'static>>));
-
+        let on_reconnect = Arc::new(Mutex::new(None::<Box<dyn Fn() + Send + Sync + 'static>>));
+        let on_connect = Arc::new(Mutex::new(None::<Box<dyn Fn() + Send + Sync + 'static>>));
+        let first_connect = Arc::new(Mutex::new(true));
         {
             let on_disconnect = on_disconnect.clone();
+            let on_reconnect = on_reconnect.clone();
+            let on_connect = on_connect.clone();
             let mut state_signals = state_signals.clone();
             let delayed_msgs = delayed_msgs.clone();
             let send_arc = send.clone();
+            let first_connect = first_connect.clone();
             spawn_local(async move {
                 use std::time::Duration;
                 loop {
@@ -96,6 +132,18 @@ impl ServerSignalWebSocket {
                             for message in state_signals.get_reconnect_messages() {
                                 let _ = tx.clone().try_send(Ok(message));
                             }
+
+                            let mut first = first_connect.lock().unwrap();
+                            if *first {
+                                *first = false;
+                                if let Some(ref on_connect) = *on_connect.lock().unwrap() {
+                                    on_connect();
+                                }
+                            } else if let Some(ref on_reconnect) = *on_reconnect.lock().unwrap() {
+                                on_reconnect();
+                            }
+                            drop(first);
+
                             while let Some(msg) = messages.next().await {
                                 let Ok(msg) = msg else {
                                     leptos::logging::error!(
@@ -110,7 +158,7 @@ impl ServerSignalWebSocket {
                                             // Usually client-to-server message, ignore if received
                                         }
                                         ServerSignalMessage::EstablishResponse((name, value)) => {
-                                            state_signals.set_json(&name, value.to_owned());
+                                            state_signals.set_json(&name, value);
                                         }
                                         ServerSignalMessage::Update(update) => {
                                             spawn_local({
@@ -118,8 +166,8 @@ impl ServerSignalWebSocket {
                                                 async move {
                                                     state_signals
                                                         .update(
-                                                            update.get_name(),
-                                                            update.to_owned(),
+                                                            &update.get_name().clone(),
+                                                            update,
                                                             None,
                                                         )
                                                         .await;
@@ -127,7 +175,7 @@ impl ServerSignalWebSocket {
                                             });
                                         }
                                         ServerSignalMessage::Delete(name) => {
-                                            state_signals.delete_signal(&name);
+                                            let _ = state_signals.delete_signal(&name);
                                         }
                                     },
                                     Messages::BiDirectional(bidirectional) => match bidirectional {
@@ -135,7 +183,7 @@ impl ServerSignalWebSocket {
                                             // Usually client-to-server message, ignore if received
                                         }
                                         BiDirectionalMessage::EstablishResponse((name, value)) => {
-                                            state_signals.set_json(&name, value.to_owned());
+                                            state_signals.set_json(&name, value);
                                             let recv = state_signals.add_observer(&name).unwrap();
                                             spawn_local(handle_broadcasts_client(recv, tx.clone()));
                                         }
@@ -146,8 +194,8 @@ impl ServerSignalWebSocket {
                                                 async move {
                                                     state_signals
                                                         .update(
-                                                            update.get_name(),
-                                                            update.to_owned(),
+                                                            &update.get_name().clone(),
+                                                            update,
                                                             Some(id.to_string()),
                                                         )
                                                         .await;
@@ -155,7 +203,7 @@ impl ServerSignalWebSocket {
                                             });
                                         }
                                         BiDirectionalMessage::Delete(name) => {
-                                            state_signals.delete_signal(&name);
+                                            let _ = state_signals.delete_signal(&name);
                                         }
                                     },
                                     Messages::Channel(channel) => match channel {
@@ -171,7 +219,7 @@ impl ServerSignalWebSocket {
                                             state_signals.handle_message(&name, value);
                                         }
                                         ChannelMessage::Delete(name) => {
-                                            state_signals.delete_channel(&name);
+                                            let _ = state_signals.delete_channel(&name);
                                         }
                                     },
                                 }
@@ -192,6 +240,8 @@ impl ServerSignalWebSocket {
             send,
             delayed_msgs,
             on_disconnect,
+            on_reconnect,
+            on_connect,
         };
 
         // Provide ClientSignals for Child Components to work
@@ -199,21 +249,18 @@ impl ServerSignalWebSocket {
 
         ws_client
     }
-
-    /// Set a callback to be called when the websocket connection is lost.
-    pub fn set_on_disconnect(&self, on_disconnect: impl Fn() + Send + Sync + 'static) {
-        *self.on_disconnect.lock().unwrap() = Some(Box::new(on_disconnect));
-    }
 }
 
 #[cfg(any(feature = "csr", feature = "hydrate"))]
 #[inline]
 fn provide_websocket_inner() -> Option<()> {
-    if let None = use_context::<ServerSignalWebSocket>() {
+    if use_context::<ServerSignalWebSocket>().is_none() {
         provide_context(ServerSignalWebSocket::new());
     }
     Some(())
 }
+
+#[allow(clippy::unused_async)]
 #[server(protocol = Websocket<JsonEncoding, JsonEncoding>,endpoint="leptos_ws_websocket")]
 pub async fn leptos_ws_websocket(
     input: BoxedStream<Messages, ServerFnError>,
@@ -221,7 +268,7 @@ pub async fn leptos_ws_websocket(
     use futures::{SinkExt, StreamExt, channel::mpsc};
     let mut input = input;
     let (mut tx, rx) = mpsc::channel(1);
-    let mut server_signals = use_context::<WsSignals>().unwrap();
+    let server_signals = use_context::<WsSignals>().unwrap();
     let id = Arc::new(nanoid::nanoid!());
     // spawn a task to listen to the input stream of messages coming in over the websocket
     tokio::spawn(async move {
@@ -260,7 +307,7 @@ pub async fn leptos_ws_websocket(
                     }
                     BiDirectionalMessage::Update(update) => {
                         server_signals
-                            .update(update.get_name(), update.to_owned(), Some(id.to_string()))
+                            .update(&update.get_name().clone(), update, Some(id.to_string()))
                             .await;
                     }
                     _ => leptos::logging::error!("Unexpected bi-directional message from client"),
@@ -300,7 +347,7 @@ async fn handle_broadcasts_client(
     while let Ok(message) = receiver.recv().await {
         if sink.send(Ok(message.1)).await.is_err() {
             break;
-        };
+        }
     }
 }
 
@@ -316,7 +363,7 @@ async fn handle_broadcasts(
         }
         if sink.send(Ok(message.1)).await.is_err() {
             break;
-        };
+        }
     }
 }
 

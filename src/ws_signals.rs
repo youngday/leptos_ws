@@ -54,6 +54,8 @@ impl WsSignals {
                 Entry::Occupied(_) => Err(Error::AddingSignalFailed),
             }
         }
+        #[cfg(not(any(feature = "ssr", feature = "hydrate", feature = "csr")))]
+        return Err(Error::AddingSignalFailed);
     }
 
     pub fn create_channel<T>(&mut self, name: &str, value: T, msg: &Messages) -> Result<(), Error>
@@ -86,6 +88,8 @@ impl WsSignals {
                 Entry::Occupied(_) => Err(Error::AddingSignalFailed),
             }
         }
+        #[cfg(not(any(feature = "ssr", feature = "hydrate", feature = "csr")))]
+        return Err(Error::AddingSignalFailed);
     }
 
     pub fn get_signal<T: Clone + 'static>(&mut self, name: &str) -> Option<T> {

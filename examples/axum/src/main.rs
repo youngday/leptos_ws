@@ -6,13 +6,13 @@ use crate::fileserv::file_and_error_handler;
 use axum::response::Response as AxumResponse;
 #[cfg(feature = "ssr")]
 use axum::{
-    extract::{FromRef, Path, Request, State},
-    response::IntoResponse,
+    Router,
+    routing::{get, post},
 };
 #[cfg(feature = "ssr")]
 use axum::{
-    routing::{get, post},
-    Router,
+    extract::{FromRef, Path, Request, State},
+    response::IntoResponse,
 };
 #[cfg(feature = "ssr")]
 use axum_example::app::*;
@@ -28,9 +28,9 @@ use leptos::{
     prelude::{provide_context, *},
 };
 #[cfg(feature = "ssr")]
-use leptos_axum::{generate_route_list_with_exclusions_and_ssg_and_context, LeptosRoutes};
+use leptos_axum::{AxumRouteListing, handle_server_fns_with_context};
 #[cfg(feature = "ssr")]
-use leptos_axum::{handle_server_fns_with_context, AxumRouteListing};
+use leptos_axum::{LeptosRoutes, generate_route_list_with_exclusions_and_ssg_and_context};
 use leptos_ws::WsSignals;
 #[cfg(feature = "ssr")]
 #[derive(Clone, FromRef)]

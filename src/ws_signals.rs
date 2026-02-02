@@ -6,6 +6,7 @@ use crate::messages::SignalUpdate;
 use crate::traits::ChannelSignalTrait;
 use crate::traits::WsSignalCore;
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use leptos::prelude::*;
 use serde_json::Value;
 use tokio::sync::broadcast::Receiver;
@@ -22,6 +23,7 @@ impl WsSignals {
         let channels = Arc::new(DashMap::new());
         Self { signals, channels }
     }
+
     pub fn create_signal<T>(&mut self, name: &str, value: T, msg: &Messages) -> Result<(), Error>
     where
         T: WsSignalCore + Send + Sync + Clone + 'static,
@@ -31,30 +33,27 @@ impl WsSignals {
             use crate::ServerSignalWebSocket;
 
             let ws = use_context::<ServerSignalWebSocket>().ok_or(Error::MissingServerSignals)?;
-            if self
-                .signals
-                .insert(name.to_owned(), Arc::new(value))
-                .map(|value| value.as_any().downcast_ref::<T>().unwrap().clone())
-                .is_none()
-            {
-                // Wrap the Establish message in ServerSignalMessage and Messages
-                ws.send(msg)?;
-                return Ok(());
+
+            match self.signals.entry(name.to_owned()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(Arc::new(value));
+                    ws.send(msg)?;
+                    Ok(())
+                }
+                Entry::Occupied(_) => Err(Error::AddingSignalFailed),
             }
         }
 
         #[cfg(all(feature = "ssr", not(any(feature = "hydrate", feature = "csr"))))]
         {
-            if self
-                .signals
-                .insert(name.to_owned(), Arc::new(value))
-                .map(|value| value.as_any().downcast_ref::<T>().unwrap().clone())
-                .is_none()
-            {
-                return Ok(());
+            match self.signals.entry(name.to_owned()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(Arc::new(value));
+                    Ok(())
+                }
+                Entry::Occupied(_) => Err(Error::AddingSignalFailed),
             }
         }
-        Err(Error::AddingSignalFailed)
     }
 
     pub fn create_channel<T>(&mut self, name: &str, value: T, msg: &Messages) -> Result<(), Error>
@@ -66,30 +65,27 @@ impl WsSignals {
             use crate::ServerSignalWebSocket;
 
             let ws = use_context::<ServerSignalWebSocket>().ok_or(Error::MissingServerSignals)?;
-            if self
-                .channels
-                .insert(name.to_owned(), Arc::new(value))
-                .map(|value| value.as_any().downcast_ref::<T>().unwrap().clone())
-                .is_none()
-            {
-                // Wrap the Establish message in ServerSignalMessage and Messages
-                ws.send(msg)?;
-                return Ok(());
+
+            match self.channels.entry(name.to_owned()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(Arc::new(value));
+                    ws.send(msg)?;
+                    Ok(())
+                }
+                Entry::Occupied(_) => Err(Error::AddingSignalFailed),
             }
         }
 
         #[cfg(all(feature = "ssr", not(any(feature = "hydrate", feature = "csr"))))]
         {
-            if self
-                .channels
-                .insert(name.to_owned(), Arc::new(value))
-                .map(|value| value.as_any().downcast_ref::<T>().unwrap().clone())
-                .is_none()
-            {
-                return Ok(());
+            match self.channels.entry(name.to_owned()) {
+                Entry::Vacant(entry) => {
+                    entry.insert(Arc::new(value));
+                    Ok(())
+                }
+                Entry::Occupied(_) => Err(Error::AddingSignalFailed),
             }
         }
-        Err(Error::AddingSignalFailed)
     }
 
     pub fn get_signal<T: Clone + 'static>(&mut self, name: &str) -> Option<T> {

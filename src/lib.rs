@@ -127,31 +127,40 @@ impl Default for ServerSignalWebSocket {
                                 }
                             }
 
-                            // Re-establish all known registrations (signals/channels) so the server
-                            // will start sending updates again after reconnect.
-                            for message in state_signals.get_reconnect_messages() {
-                                let _ = tx.clone().try_send(Ok(message));
-                            }
-
                             let mut first = first_connect.lock().unwrap();
+                            let is_first_connect = *first;
                             if *first {
                                 *first = false;
-                                if let Some(ref on_connect) = *on_connect.lock().unwrap() {
-                                    on_connect();
-                                }
-                            } else if let Some(ref on_reconnect) = *on_reconnect.lock().unwrap() {
-                                on_reconnect();
                             }
                             drop(first);
 
+                            if !is_first_connect {
+                                for message in state_signals.get_reconnect_messages() {
+                                    let _ = tx.clone().try_send(Ok(message));
+                                }
+                            }
+
+                            // Fire appropriate connection callback
+                            if is_first_connect {
+                                if let Some(ref on_connect) = *on_connect.lock().unwrap() {
+                                    on_connect();
+                                }
+                            }
+
+                            let mut first_message_received = false;
                             while let Some(msg) = messages.next().await {
                                 let Ok(msg) = msg else {
-                                    leptos::logging::error!(
-                                        "{}",
-                                        msg.expect_err("Exepcting Error because of else unwrap")
-                                    );
                                     continue;
                                 };
+
+                                // Fire on_reconnect after first successful message (confirms connection is working)
+                                if !first_message_received && !is_first_connect {
+                                    if let Some(ref on_reconnect) = *on_reconnect.lock().unwrap() {
+                                        on_reconnect();
+                                    }
+                                    first_message_received = true;
+                                }
+
                                 match msg {
                                     Messages::ServerSignal(server_msg) => match server_msg {
                                         ServerSignalMessage::Establish(_) => {

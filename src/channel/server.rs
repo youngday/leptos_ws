@@ -74,12 +74,18 @@ where
             server_callback: Arc::new(RwLock::new(None)),
         };
         let signal = new_signal.clone();
-        signals.create_channel(
+
+        match signals.create_channel(
             name,
             new_signal,
             &Messages::Channel(ChannelMessage::Establish(name.to_owned())),
-        )?;
-        Ok(signal)
+        ) {
+            Ok(()) => Ok(signal),
+            Err(Error::AddingSignalFailed) => {
+                signals.get_channel(name).ok_or(Error::AddingSignalFailed)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Register a callback that gets called when a message arrives on the server side
